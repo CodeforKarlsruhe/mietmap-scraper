@@ -28,7 +28,8 @@ Scraper for renting costs in Karlsruhe.
 from __future__ import unicode_literals
 
 import cgi
-import codecs
+import contextlib
+import sqlite3
 import urllib2
 
 from bs4 import BeautifulSoup
@@ -37,6 +38,45 @@ from bs4 import BeautifulSoup
 # Immobilienscout24 URLs for listings in Karlsruhe
 BASE_URL = 'http://www.immobilienscout24.de/Suche/S-T/Wohnung-Miete/Baden-Wuerttemberg/Karlsruhe'
 PAGE_URL = 'http://www.immobilienscout24.de/Suche/S-T/P-%d/Wohnung-Miete/Baden-Wuerttemberg/Karlsruhe?pagerReporting=true'
+
+
+@contextlib.contextmanager
+def prepare_database(filename):
+    """
+    Context manager that provides a database.
+    """
+    db = sqlite3.connect(filename)
+    db.execute('''
+        CREATE TABLE IF NOT EXISTS listings (
+            id TEXT PRIMARY KEY,
+            address TEXT,
+            rent REAL,
+            area REAL,
+            date DATE DEFAULT CURRENT_TIMESTAMP
+        ) WITHOUT ROWID;
+    ''')
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def store_listings(db, listings):
+    """
+    Store listings in database.
+
+    Listings already contained in the database are ignored.
+
+    Returns the number of listings that were stored.
+    """
+    cursor = db.cursor()
+    tuples = [(x, y['address'], y['rent'], y['area']) for x, y in
+              listings.iteritems()]
+    sql = '''INSERT OR IGNORE INTO listings (id, address, rent, area)
+             VALUES (?, ?, ?, ?);'''
+    cursor.executemany(sql, tuples)
+    db.commit()
+    return cursor.rowcount
 
 
 def download_as_unicode(url):
@@ -109,18 +149,22 @@ def extract_number_of_pages(soup):
 
 if __name__ == '__main__':
     from pprint import pprint
+    import os.path
     import sys
+
+    db_filename = os.path.abspath(os.path.join(os.path.dirname(__file__),
+                                  'listings.sqlite'))
+    print 'Using database "%s"' % db_filename
 
     number_of_pages = None
     page_index = 1
-    listings = {}
-    while (not number_of_pages) or (page_index <= number_of_pages):
-        sys.stdout.write('.')
-        sys.stdout.flush()
-        page = get_page(page_index)
-        number_of_pages = number_of_pages or extract_number_of_pages(page)
-        listings.update(extract_listings(page))
-        page_index += 1
-    print
-    print pprint(listings)
+    with prepare_database(db_filename) as db:
+        while (not number_of_pages) or (page_index <= number_of_pages):
+            print "Fetching page %d" % page_index
+            page = get_page(page_index)
+            number_of_pages = number_of_pages or extract_number_of_pages(page)
+            listings = extract_listings(page)
+            new_count = store_listings(db, listings)
+            print "Extracted %d listings (%d new)" % (len(listings), new_count)
+            page_index += 1
 

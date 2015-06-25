@@ -1,4 +1,6 @@
 /venv/
+/listings.sqlite
+
 *.pyc
 *.swp
 
