@@ -148,32 +148,44 @@ def extract_number_of_pages(soup):
 
 
 if __name__ == '__main__':
-    from pprint import pprint
+    import argparse
     import logging
     import logging.handlers
     import os.path
     import sys
 
-    log_file = os.path.abspath(os.path.join(os.path.dirname(__file__),
-                               'scrape.log'))
+    HERE = os.path.abspath(os.path.dirname(__file__))
+
+    DB_FILE = os.path.join(HERE, 'listings.sqlite')
+
+    parser = argparse.ArgumentParser(description='Rent scraper')
+    parser.add_argument('--database', help='Database file', default=DB_FILE)
+    parser.add_argument('--verbose', '-v', help='Output log to STDOUT',
+                        default=False, action='store_true')
+    args = parser.parse_args()
+    args.database = os.path.abspath(args.database)
+
+    LOG_FILE = os.path.join(HERE, 'scrape.log')
     logger = logging.getLogger()
     formatter = logging.Formatter('[%(asctime)s] <%(levelname)s> %(message)s')
     handler = logging.handlers.TimedRotatingFileHandler(
-        log_file, when='W0', backupCount=4, encoding='utf8')
+        LOG_FILE, when='W0', backupCount=4, encoding='utf8')
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
-    logger.info('Started')
+    if args.verbose:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
-    db_file = os.path.abspath(os.path.join(os.path.dirname(__file__),
-                              'listings.sqlite'))
-    logger.info('Using database "%s"' % db_file)
+    logger.info('Started')
+    logger.info('Using database "%s"' % args.database)
 
     try:
         num_pages = None
         page_index = 1
-        with prepare_database(db_file) as db:
+        with prepare_database(args.database) as db:
             while (not num_pages) or (page_index <= num_pages):
                 logger.info("Fetching page %d" % page_index)
                 page = get_page(page_index)
@@ -187,3 +199,4 @@ if __name__ == '__main__':
         logger.exception(e)
 
     logger.info('Finished')
+
