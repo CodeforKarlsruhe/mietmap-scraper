@@ -149,22 +149,41 @@ def extract_number_of_pages(soup):
 
 if __name__ == '__main__':
     from pprint import pprint
+    import logging
+    import logging.handlers
     import os.path
     import sys
 
-    db_filename = os.path.abspath(os.path.join(os.path.dirname(__file__),
-                                  'listings.sqlite'))
-    print 'Using database "%s"' % db_filename
+    log_file = os.path.abspath(os.path.join(os.path.dirname(__file__),
+                               'scrape.log'))
+    logger = logging.getLogger()
+    formatter = logging.Formatter('[%(asctime)s] <%(levelname)s> %(message)s')
+    handler = logging.handlers.TimedRotatingFileHandler(
+        log_file, when='W0', backupCount=4, encoding='utf8')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
 
-    number_of_pages = None
-    page_index = 1
-    with prepare_database(db_filename) as db:
-        while (not number_of_pages) or (page_index <= number_of_pages):
-            print "Fetching page %d" % page_index
-            page = get_page(page_index)
-            number_of_pages = number_of_pages or extract_number_of_pages(page)
-            listings = extract_listings(page)
-            new_count = store_listings(db, listings)
-            print "Extracted %d listings (%d new)" % (len(listings), new_count)
-            page_index += 1
+    logger.info('Started')
 
+    db_file = os.path.abspath(os.path.join(os.path.dirname(__file__),
+                              'listings.sqlite'))
+    logger.info('Using database "%s"' % db_file)
+
+    try:
+        num_pages = None
+        page_index = 1
+        with prepare_database(db_file) as db:
+            while (not num_pages) or (page_index <= num_pages):
+                logger.info("Fetching page %d" % page_index)
+                page = get_page(page_index)
+                num_pages = num_pages or extract_number_of_pages(page)
+                listings = extract_listings(page)
+                new_count = store_listings(db, listings)
+                logger.info("Extracted %d listings (%d new)" % (len(listings),
+                            new_count))
+                page_index += 1
+    except Exception as e:
+        logger.exception(e)
+
+    logger.info('Finished')
