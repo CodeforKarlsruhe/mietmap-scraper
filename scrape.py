@@ -30,6 +30,7 @@ from __future__ import unicode_literals
 import cgi
 import contextlib
 import sqlite3
+import re
 import urllib2
 
 from bs4 import BeautifulSoup
@@ -49,7 +50,9 @@ def prepare_database(filename):
     db.execute('''
         CREATE TABLE IF NOT EXISTS listings (
             id TEXT PRIMARY KEY,
-            address TEXT,
+            street TEXT,
+            number TEXT,
+            suburb TEXT,
             rent REAL,
             area REAL,
             date DATE DEFAULT CURRENT_TIMESTAMP
@@ -70,10 +73,10 @@ def store_listings(db, listings):
     Returns the number of listings that were stored.
     """
     cursor = db.cursor()
-    tuples = [(x, y['address'], y['rent'], y['area']) for x, y in
-              listings.iteritems()]
-    sql = '''INSERT OR IGNORE INTO listings (id, address, rent, area)
-             VALUES (?, ?, ?, ?);'''
+    tuples = [(x, y['street'], y['number'], y['suburb'], y['rent'],
+              y['area']) for x, y in listings.iteritems()]
+    sql = '''INSERT OR IGNORE INTO listings (id, street, number, suburb, rent,
+             area) VALUES (?, ?, ?, ?, ?, ?);'''
     cursor.executemany(sql, tuples)
     db.commit()
     return cursor.rowcount
@@ -111,6 +114,22 @@ def parse_german_float(s):
     return float(s.replace('.', '').replace(',', '.'))
 
 
+def parse_address(address):
+    """
+    Parse an address string into street, house number, and suburb.
+    """
+    fields = [s.strip() for s in address.split(',')]
+    if len(fields) == 2:
+        street = None
+        number = None
+        suburb = fields[0]
+    else:
+        street, number = fields[0].rsplit(' ', 1)
+        street = re.sub(r'([Ss])(trasse|tr.)\Z', r'\1traße', street)
+        suburb = fields[1]
+    return (street, number, suburb)
+
+
 def extract_listings(soup):
     """
     Extract individual listings from a page.
@@ -124,7 +143,7 @@ def extract_listings(soup):
         street_span = div.find('span', class_='street')
         if not street_span:
             continue
-        address = unicode(street_span.string)
+        street, number, suburb = parse_address(unicode(street_span.string))
         for dd in div.find_all('dd', class_='value'):
             content = unicode(dd.string).strip()
             if content.endswith('€'):
@@ -132,7 +151,9 @@ def extract_listings(soup):
             elif content.endswith('m²'):
                 area = parse_german_float(content.split()[0])
         listings[listing_id] = {
-            'address': address,
+            'street': street,
+            'number': number,
+            'suburb': suburb,
             'rent': rent,
             'area': area,
         }
