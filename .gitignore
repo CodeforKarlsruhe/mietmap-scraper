@@ -1,5 +1,6 @@
 /venv/
 /listings.sqlite
+/address_location_cache.pickle
 /scrape.log*
 
 *.pyc

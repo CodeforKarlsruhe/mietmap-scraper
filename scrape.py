@@ -29,11 +29,16 @@ from __future__ import unicode_literals
 
 import cgi
 import contextlib
-import sqlite3
+import errno
+import functools
+import pickle
 import re
+import sqlite3
+import time
 import urllib2
 
 from bs4 import BeautifulSoup
+from geopy.geocoders import Nominatim
 
 
 # Immobilienscout24 URLs for listings in Karlsruhe
@@ -55,6 +60,8 @@ def prepare_database(filename):
             suburb TEXT,
             rent REAL,
             area REAL,
+            latitude REAL,
+            longitude REAL,
             date DATE DEFAULT CURRENT_TIMESTAMP
         ) WITHOUT ROWID;
     ''')
@@ -168,6 +175,99 @@ def extract_number_of_pages(soup):
     return int(pager_span.string.split()[-1])
 
 
+def rate_limited(calls=1, seconds=1):
+    """
+    Decorator for rate limiting function calls.
+
+    Makes sure that the decorated function is executed at most ``calls``
+    times in ``seconds`` seconds. Calls to the decorated function which
+    exceed this limit are delayed as necessary.
+    """
+    def decorator(f):
+        last_calls = []
+
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs):
+            now = time.time()
+            last_calls[:] = [x for x in last_calls if now - x <= seconds]
+            if len(last_calls) >= calls:
+                if calls == 1:
+                    delta = last_calls[-1] + seconds - now
+                else:
+                    delta = last_calls[1] + seconds - now
+                time.sleep(delta)
+            last_calls.append(time.time())
+            return f(*args, **kwargs)
+
+        return wrapper
+    return decorator
+
+
+def memoize_persistently(filename):
+    """
+    Persistently memoize a function's return values.
+
+    This decorator memoizes a function's return values persistently
+    over multiple runs of the program. The return values are stored
+    in the given file using ``pickle``. If the decorated function is
+    called again with arguments that it has already been called with
+    then the return value is retrieved from the cache and returned
+    without calling the function. If the function is called with
+    previously unseen arguments then its return value is added to the
+    cache and the cache file is updated.
+
+    Both return values and arguments of the function must support the
+    pickle protocol. The arguments must also be usable as dictionary
+    keys.
+    """
+    try:
+        with open(filename, 'rb') as cache_file:
+            cache = pickle.load(cache_file)
+    except IOError as e:
+        if e.errno != errno.ENOENT:
+            raise
+        cache = {}
+
+    def decorator(f):
+
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs):
+            key = args + tuple(sorted(kwargs.items()))
+            try:
+                return cache[key]
+            except KeyError:
+                value = cache[key] = f(*args, **kwargs)
+                with open(filename, 'wb') as cache_file:
+                    pickle.dump(cache, cache_file)
+                return value
+
+        return wrapper
+    return decorator
+
+
+_geolocator = Nominatim()
+
+@memoize_persistently('address_location_cache.pickle')
+@rate_limited()
+def get_coordinates(address, timeout=5):
+    """
+    Geolocate an address.
+
+    Returns the latitude and longitude of the given address using
+    OpenStreetMap's Nominatim service. If the coordinates of the
+    address cannot be found then ``(None, None)`` is returned.
+
+    As per Nominatim's terms of service this function is rate limited
+    to at most one call per second.
+
+    ``timeout`` gives the timeout in seconds.
+    """
+    location = _geolocator.geocode(address, timeout=timeout)
+    if not location:
+        return None, None
+    return location.latitude, location.longitude
+
+
 if __name__ == '__main__':
     import argparse
     import logging
@@ -203,19 +303,50 @@ if __name__ == '__main__':
     logger.info('Started')
     logger.info('Using database "%s"' % args.database)
 
-    try:
+    def get_new_listings(db):
         num_pages = None
         page_index = 1
+        while (not num_pages) or (page_index <= num_pages):
+            logger.info("Fetching page %d" % page_index)
+            page = get_page(page_index)
+            num_pages = num_pages or extract_number_of_pages(page)
+            listings = extract_listings(page)
+            new_count = store_listings(db, listings)
+            logger.info("Extracted %d listings (%d new)" % (len(listings),
+                        new_count))
+            page_index += 1
+
+    def add_coordinates(db):
+        logger.info('Looking up address coordinates (this might take a while)')
+        c = db.cursor()
+        c.execute('''SELECT id, street, number, suburb FROM listings
+                  WHERE latitude ISNULL;''')
+        updates = []
+        for row in c:
+            id, street, number, suburb = row
+            candidates = []
+            if street:
+                if number:
+                    candidates.append('%s %s, %s' % (street, number, suburb))
+                candidates.append('%s, %s' % (street, suburb))
+            candidates.append(suburb)
+            coordinates = None
+            for candidate in candidates:
+                coordinates = get_coordinates(candidate + ', Karlsruhe')
+                if coordinates[0]:
+                    break
+            else:
+                coordinates = (-1, -1)
+            updates.append((coordinates[0], coordinates[1], id))
+        c.executemany('''UPDATE listings SET latitude=?, longitude=? WHERE
+                      id=?;''', updates)
+        db.commit()
+        logger.info('Updated %d listings with coordinates' % c.rowcount)
+
+    try:
         with prepare_database(args.database) as db:
-            while (not num_pages) or (page_index <= num_pages):
-                logger.info("Fetching page %d" % page_index)
-                page = get_page(page_index)
-                num_pages = num_pages or extract_number_of_pages(page)
-                listings = extract_listings(page)
-                new_count = store_listings(db, listings)
-                logger.info("Extracted %d listings (%d new)" % (len(listings),
-                            new_count))
-                page_index += 1
+            get_new_listings(db)
+            add_coordinates(db)
     except Exception as e:
         logger.exception(e)
 
