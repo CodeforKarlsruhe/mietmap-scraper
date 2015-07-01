@@ -28,9 +28,11 @@ Scraper for renting costs in Karlsruhe.
 from __future__ import unicode_literals
 
 import cgi
+import codecs
 import contextlib
 import errno
 import functools
+import json
 import pickle
 import re
 import sqlite3
@@ -278,13 +280,16 @@ if __name__ == '__main__':
     HERE = os.path.abspath(os.path.dirname(__file__))
 
     DB_FILE = os.path.join(HERE, 'listings.sqlite')
+    JSON_FILE = os.path.join(HERE, 'listings.json')
 
     parser = argparse.ArgumentParser(description='Rent scraper')
     parser.add_argument('--database', help='Database file', default=DB_FILE)
+    parser.add_argument('--json', help='JSON output file', default=JSON_FILE)
     parser.add_argument('--verbose', '-v', help='Output log to STDOUT',
                         default=False, action='store_true')
     args = parser.parse_args()
     args.database = os.path.abspath(args.database)
+    args.json = os.path.abspath(args.json)
 
     LOG_FILE = os.path.join(HERE, 'scrape.log')
     logger = logging.getLogger()
@@ -343,10 +348,21 @@ if __name__ == '__main__':
         db.commit()
         logger.info('Updated %d listings with coordinates' % c.rowcount)
 
+    def export_to_json(db, filename):
+        logger.info('Exporting data to JSON file "%s"' % filename)
+        c = db.cursor()
+        c.execute('''SELECT latitude, longitude, area, rent FROM listings
+                     WHERE latitude NOT NULL;''')
+        data = [(round(row[0], 5), round(row[1], 5), round(row[3] / row[2], 1))
+                for row in c]
+        with codecs.open(filename, 'w', encoding='utf8') as f:
+            json.dump(data, f, separators=(',', ':'))
+
     try:
         with prepare_database(args.database) as db:
             get_new_listings(db)
             add_coordinates(db)
+            export_to_json(db, args.json)
     except Exception as e:
         logger.exception(e)
 
