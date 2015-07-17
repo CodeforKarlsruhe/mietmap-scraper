@@ -147,8 +147,13 @@ def extract_listings(soup):
     """
     listings = {}
     for div in soup.find_all('div', class_='resultlist_entry_data'):
-        listing_a = div.find('a', class_='headline-link')
-        listing_id = listing_a.get('href').split('/')[-1]
+        for a in div.find_all('a'):
+            if a.get('href', '').startswith('/expose/'):
+                listing_id = a.get('href').split('/')[-1]
+                break
+        else:
+            # Couldn't find listing's ID
+            continue
         street_span = div.find('span', class_='street')
         if not street_span:
             continue
