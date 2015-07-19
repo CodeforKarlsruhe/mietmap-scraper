@@ -351,13 +351,14 @@ if __name__ == '__main__':
         c.executemany('''UPDATE listings SET latitude=?, longitude=? WHERE
                       id=?;''', updates)
         db.commit()
-        logger.info('Updated %d listings with coordinates' % c.rowcount)
+        rowcount = max(0, c.rowcount)
+        logger.info('Updated %d listings with coordinates' % rowcount)
 
     def export_to_json(db, filename):
         logger.info('Exporting data to JSON file "%s"' % filename)
         c = db.cursor()
         c.execute('''SELECT latitude, longitude, area, rent FROM listings
-                     WHERE latitude NOT NULL;''')
+                     WHERE (latitude NOT NULL) AND (number NOT NULL);''')
         data = [(round(row[0], 5), round(row[1], 5), round(row[3] / row[2], 1))
                 for row in c]
         with codecs.open(filename, 'w', encoding='utf8') as f:
