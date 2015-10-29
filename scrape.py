@@ -299,6 +299,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Rent scraper')
     parser.add_argument('--database', help='Database file', default=DB_FILE)
     parser.add_argument('--json', help='JSON output file', default=JSON_FILE)
+    parser.add_argument('--heatmap', help='Heatmap output file',
+                        default=HEATMAP_FILE)
     parser.add_argument('--verbose', '-v', help='Output log to STDOUT',
                         default=False, action='store_true')
     args = parser.parse_args()
@@ -407,7 +409,7 @@ if __name__ == '__main__':
             get_new_listings(db)
             add_coordinates(db)
             export_to_json(db, args.json)
-            create_heatmap(db, HEATMAP_FILE)
+            create_heatmap(db, args.heatmap)
     except Exception as e:
         logger.exception(e)
 
