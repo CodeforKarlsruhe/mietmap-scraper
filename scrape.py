@@ -341,24 +341,15 @@ if __name__ == '__main__':
         logger.info('Looking up address coordinates (this might take a while)')
         c = db.cursor()
         c.execute('''SELECT id, street, number, suburb FROM listings
-                  WHERE latitude ISNULL;''')
+                  WHERE (latitude IS NULL) AND (suburb NOT NULL) AND
+                  (street NOT NULL) AND (number NOT NULL);''')
         updates = []
         for row in c:
             id, street, number, suburb = row
-            candidates = []
-            if street:
-                if number:
-                    candidates.append('%s %s, %s' % (street, number, suburb))
-                candidates.append('%s, %s' % (street, suburb))
-            candidates.append(suburb)
-            coordinates = None
-            for candidate in candidates:
-                coordinates = get_coordinates(candidate + ', Karlsruhe')
-                if coordinates[0]:
-                    break
-            else:
-                coordinates = (-1, -1)
-            updates.append((coordinates[0], coordinates[1], id))
+            address = '%s %s, %s, Karlsruhe' % (street, number, suburb)
+            coordinates = get_coordinates(address)
+            if coordinates[0] is not None:
+                updates.append((coordinates[0], coordinates[1], id))
         c.executemany('''UPDATE listings SET latitude=?, longitude=? WHERE
                       id=?;''', updates)
         db.commit()
