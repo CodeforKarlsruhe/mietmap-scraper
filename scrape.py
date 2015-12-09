@@ -40,9 +40,7 @@ import time
 import urllib2
 
 from bs4 import BeautifulSoup
-import clusterpolate
 from geopy.geocoders import Nominatim
-import numpy as np
 
 
 # Immobilienscout24 URLs for listings in Karlsruhe
@@ -290,17 +288,10 @@ if __name__ == '__main__':
 
     DB_FILE = os.path.join(HERE, 'listings.sqlite')
     JSON_FILE = os.path.join(HERE, 'listings.json')
-    HEATMAP_FILE = os.path.join(HERE, 'heatmap.png')
-    HEATMAP_AREA = ((8.28, -49.08), (8.53, -48.92))
-    HEATMAP_SIZE = (250, 160)
-    HEATMAP_COLORMAP = matplotlib.cm.rainbow
-    HEATMAP_RADIUS = 0.01
 
     parser = argparse.ArgumentParser(description='Rent scraper')
     parser.add_argument('--database', help='Database file', default=DB_FILE)
     parser.add_argument('--json', help='JSON output file', default=JSON_FILE)
-    parser.add_argument('--heatmap', help='Heatmap output file',
-                        default=HEATMAP_FILE)
     parser.add_argument('--verbose', '-v', help='Output log to STDOUT',
                         default=False, action='store_true')
     args = parser.parse_args()
@@ -366,41 +357,11 @@ if __name__ == '__main__':
         with codecs.open(filename, 'w', encoding='utf8') as f:
             json.dump(data, f, separators=(',', ':'))
 
-    def create_heatmap(db, filename):
-        logger.info('Creating heatmap "%s"' % filename)
-        c = db.cursor()
-        c.execute('''SELECT latitude, longitude, area, rent FROM listings
-                     WHERE (latitude NOT NULL) AND (number NOT NULL);''')
-        points = []
-        values = []
-        for row in c:
-            points.append((row[1], -row[0]))
-            values.append(row[3] / row[2])
-
-        # Trim values
-        points = np.array(points)
-        values = np.array(values)
-        min_value = values.min()
-        max_value = values.max()
-        spread = max_value - min_value
-        trim = 0.01 * spread
-        upper_limit = max_value - trim
-        lower_limit = min_value + trim
-        keep = (values < upper_limit) & (values > lower_limit)
-        points = points[keep, :]
-        values = values[keep]
-
-        img = clusterpolate.image(points, values, size=HEATMAP_SIZE,
-                                  area=HEATMAP_AREA, radius=HEATMAP_RADIUS,
-                                  colormap=HEATMAP_COLORMAP)[3]
-        img.save(filename)
-
     try:
         with prepare_database(args.database) as db:
             get_new_listings(db)
             add_coordinates(db)
             export_to_json(db, args.json)
-            create_heatmap(db, args.heatmap)
     except Exception as e:
         logger.exception(e)
 
