@@ -282,8 +282,6 @@ if __name__ == '__main__':
     import os.path
     import sys
 
-    import matplotlib.cm
-
     HERE = os.path.abspath(os.path.dirname(__file__))
 
     DB_FILE = os.path.join(HERE, 'listings.sqlite')
