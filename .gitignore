@@ -3,7 +3,7 @@
 /listings.json
 /address_location_cache.pickle
 /scrape.log*
-/heatmap.png
+/export/
 
 *.pyc
 *.swp

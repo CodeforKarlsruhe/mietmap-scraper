@@ -33,6 +33,7 @@ import contextlib
 import errno
 import functools
 import json
+import os
 import pickle
 import re
 import sqlite3
@@ -67,6 +68,7 @@ def prepare_database(filename):
             date DATE DEFAULT CURRENT_TIMESTAMP
         ) WITHOUT ROWID;
     ''')
+    db.row_factory = sqlite3.Row
     try:
         yield db
     finally:
@@ -275,6 +277,28 @@ def get_coordinates(address, timeout=5):
     return location.latitude, location.longitude
 
 
+def dump_json(data, filename):
+    """
+    Dump data as JSON to file.
+    """
+    with codecs.open(filename, 'w', encoding='utf8') as f:
+        json.dump(data, f, separators=(',', ':'))
+
+
+def mkdirs(path):
+    """
+    Recursively create directories.
+
+    Like ``os.makedirs``, but does not raise an error if the directory
+    already exists.
+    """
+    try:
+        os.makedirs(path)
+    except OSError as e:
+        if e.errno != errno.EEXIST:
+            raise
+
+
 if __name__ == '__main__':
     import argparse
     import logging
@@ -285,16 +309,19 @@ if __name__ == '__main__':
     HERE = os.path.abspath(os.path.dirname(__file__))
 
     DB_FILE = os.path.join(HERE, 'listings.sqlite')
-    JSON_FILE = os.path.join(HERE, 'listings.json')
+    EXPORT_DIR = os.path.join(HERE, 'export')
 
     parser = argparse.ArgumentParser(description='Rent scraper')
     parser.add_argument('--database', help='Database file', default=DB_FILE)
-    parser.add_argument('--json', help='JSON output file', default=JSON_FILE)
+    parser.add_argument('--export-dir', help='Output directory for ' +
+                        'exported data', default=EXPORT_DIR)
     parser.add_argument('--verbose', '-v', help='Output log to STDOUT',
                         default=False, action='store_true')
     args = parser.parse_args()
     args.database = os.path.abspath(args.database)
-    args.json = os.path.abspath(args.json)
+    args.export_dir = os.path.abspath(args.export_dir)
+    marker_filename = os.path.join(args.export_dir, 'markers.json')
+    data_filename = os.path.join(args.export_dir, 'listings.json')
 
     LOG_FILE = os.path.join(HERE, 'scrape.log')
     logger = logging.getLogger()
@@ -345,21 +372,43 @@ if __name__ == '__main__':
         rowcount = max(0, c.rowcount)
         logger.info('Updated %d listings with coordinates' % rowcount)
 
-    def export_to_json(db, filename):
-        logger.info('Exporting data to JSON file "%s"' % filename)
+    def export_markers_to_json(db, filename):
+        """
+        Export data points with known geolocation to JSON.
+        """
+        logger.info('Exporting marker data to JSON file "%s"' % filename)
         c = db.cursor()
         c.execute('''SELECT latitude, longitude, area, rent FROM listings
                      WHERE (latitude NOT NULL) AND (number NOT NULL);''')
         data = [(round(row[0], 5), round(row[1], 5), round(row[3] / row[2], 1))
                 for row in c]
-        with codecs.open(filename, 'w', encoding='utf8') as f:
-            json.dump(data, f, separators=(',', ':'))
+        dump_json(data, filename)
+
+
+    def row_to_dict(row):
+        """
+        Convert a ``sqlite3.Row`` instance to a dictionary.
+        """
+        return {k: row[k] for k in row.keys()}
+
+
+    def export_data_to_json(db, filename):
+        """
+        Export raw data to JSON.
+        """
+        logger.info('Exporting raw data to JSON file "%s".' % filename)
+        c = db.cursor()
+        c.execute('SELECT * FROM listings;')
+        data = [row_to_dict(row) for row in c]
+        dump_json(data, filename)
 
     try:
         with prepare_database(args.database) as db:
             get_new_listings(db)
             add_coordinates(db)
-            export_to_json(db, args.json)
+            mkdirs(args.export_dir)
+            export_markers_to_json(db, marker_filename)
+            export_data_to_json(db, data_filename)
     except Exception as e:
         logger.exception(e)
 
