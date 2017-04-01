@@ -2,7 +2,7 @@ Scraper for Flat Rental Prices
 ==============================
 This is a small scraper for flat rental prices in Karlsruhe, Germany.
 
-The data it produces can be visualized using [mietmap].
+The data it produces can be visualized using [mietmap] and [mietmap-overlay].
 
 
 Usage
@@ -34,5 +34,6 @@ Licensed under the MIT license, see the file `LICENSE`.
 
 
 [mietmap]: https://github.com/CodeforKarlsruhe/mietmap
+[mietmap-overlay]: https://github.com/CodeforKarlsruhe/mietmap-overlay
 [virtualenv]: https://virtualenv.pypa.io/
 
