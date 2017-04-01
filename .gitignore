@@ -4,6 +4,7 @@
 /address_location_cache.pickle
 /scrape.log*
 /export/
+/README.html
 
 *.pyc
 *.swp
